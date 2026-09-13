@@ -1,0 +1,1014 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Courtside — Team Stat Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg:#10161A;
+    --panel:#1A2226;
+    --panel-hi:#212B30;
+    --panel-hi2:#28333A;
+    --ink:#EDEAE2;
+    --ink-dim:#8B98A0;
+    --ink-faint:#5B676D;
+    --accent:#FF7A33;
+    --accent-ink:#2A1204;
+    --make:#33C17B;
+    --miss:#E5484D;
+    --line:#2A3438;
+    --wood:#C9A876;
+    --radius:16px;
+    --radius-sm:10px;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
+    overscroll-behavior-y:none;
+    user-select:none;
+  }
+  .num{font-family:'Space Grotesk',sans-serif; font-variant-numeric:tabular-nums;}
+  #app{
+    max-width:520px;
+    margin:0 auto;
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    position:relative;
+  }
+  #content{
+    flex:1;
+    overflow-y:auto;
+    padding:14px 14px calc(90px + var(--safe-bottom));
+    -webkit-overflow-scrolling:touch;
+  }
+  /* ---------- Bottom nav ---------- */
+  #bottomNav{
+    position:fixed;
+    bottom:0; left:50%; transform:translateX(-50%);
+    width:100%; max-width:520px;
+    display:flex;
+    background:var(--panel);
+    border-top:1px solid var(--line);
+    padding-bottom:var(--safe-bottom);
+    z-index:50;
+  }
+  #bottomNav button{
+    flex:1;
+    background:none; border:none;
+    color:var(--ink-dim);
+    font-family:'Inter',sans-serif;
+    font-size:12.5px;
+    font-weight:600;
+    padding:12px 4px 10px;
+    display:flex; flex-direction:column; align-items:center; gap:4px;
+    cursor:pointer;
+  }
+  #bottomNav button .dot{width:6px;height:6px;border-radius:50%;background:transparent;}
+  #bottomNav button.active{color:var(--ink);}
+  #bottomNav button.active .dot{background:var(--accent);}
+
+  /* ---------- Generic bits ---------- */
+  h1,h2,h3{font-family:'Space Grotesk',sans-serif; margin:0 0 4px;}
+  .card{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:16px;
+    margin-bottom:14px;
+  }
+  .muted{color:var(--ink-dim); font-size:13.5px; line-height:1.5;}
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center;
+    background:var(--panel-hi2);
+    color:var(--ink);
+    border:1px solid var(--line);
+    border-radius:var(--radius-sm);
+    padding:13px 18px;
+    font-family:'Inter',sans-serif;
+    font-weight:600;
+    font-size:15px;
+    cursor:pointer;
+    min-height:48px;
+  }
+  .btn.primary{background:var(--accent); color:var(--accent-ink); border-color:var(--accent);}
+  .btn.block{width:100%;}
+  .btn.danger-outline{background:transparent; border-color:var(--miss); color:var(--miss);}
+  .btn:active{filter:brightness(0.88); transform:scale(0.98);}
+  input[type=text], input[type=number]{
+    width:100%;
+    background:var(--panel-hi);
+    border:1px solid var(--line);
+    border-radius:var(--radius-sm);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    font-size:16px;
+    padding:12px 14px;
+    margin-top:6px;
+  }
+  label.field{display:block; font-size:13px; color:var(--ink-dim); font-weight:600; margin-top:10px;}
+  .row{display:flex; gap:10px;}
+  .row > *{flex:1;}
+  .toast{
+    position:fixed; left:50%; top:16px; transform:translateX(-50%);
+    background:var(--panel-hi2); border:1px solid var(--line);
+    padding:10px 16px; border-radius:999px; font-size:13.5px;
+    z-index:200; opacity:0; pointer-events:none; transition:opacity .25s ease, top .25s ease;
+  }
+  .toast.show{opacity:1; top:26px;}
+
+  /* ---------- Scoreboard ---------- */
+  .scoreboard{
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:var(--radius); padding:14px 16px; margin-bottom:12px;
+  }
+  .sb-team{flex:1; text-align:center;}
+  .sb-name{font-size:12.5px; color:var(--ink-dim); font-weight:600; letter-spacing:.2px; margin-bottom:2px;}
+  .sb-score{font-size:34px; font-weight:700; line-height:1;}
+  .sb-mid{padding:0 14px; text-align:center;}
+  .sb-vs{color:var(--ink-faint); font-size:11px; font-weight:600;}
+  .opp-add{display:flex; gap:6px; justify-content:center; margin-top:8px;}
+  .opp-add button{
+    background:var(--panel-hi2); border:1px solid var(--line); color:var(--ink);
+    border-radius:8px; padding:6px 0; width:34px; font-weight:700; font-size:13px; cursor:pointer;
+  }
+
+  .quarters{display:flex; gap:6px; margin-bottom:14px;}
+  .quarters button{
+    flex:1; padding:8px 0; border-radius:999px; border:1px solid var(--line);
+    background:var(--panel); color:var(--ink-dim); font-weight:700; font-size:13px; cursor:pointer;
+  }
+  .quarters button.active{background:var(--wood); color:#221808; border-color:var(--wood);}
+
+  .subtoggle{display:flex; gap:6px; margin-bottom:14px;}
+  .subtoggle button{
+    flex:1; padding:10px 0; border-radius:999px; border:1px solid var(--line);
+    background:var(--panel); color:var(--ink-dim); font-weight:700; font-size:13px; cursor:pointer;
+  }
+  .subtoggle button.active{background:var(--accent); color:var(--accent-ink); border-color:var(--accent);}
+
+  /* ---------- Player rail ---------- */
+  .rail{display:flex; gap:10px; overflow-x:auto; padding:2px 2px 10px; margin-bottom:8px;}
+  .chip{
+    flex:0 0 auto; width:64px; text-align:center; cursor:pointer;
+  }
+  .chip .circle{
+    width:56px; height:56px; border-radius:50%;
+    background:var(--panel-hi); border:2px solid var(--line);
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Space Grotesk',sans-serif; font-size:20px; font-weight:700;
+    margin:0 auto 5px;
+  }
+  .chip.selected .circle{border-color:var(--accent); background:var(--panel-hi2); box-shadow:0 0 0 3px rgba(255,122,51,.18);}
+  .chip .name{font-size:11px; color:var(--ink-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .chip.selected .name{color:var(--ink); font-weight:600;}
+
+  .selected-line{
+    background:var(--panel-hi); border:1px solid var(--line); border-radius:var(--radius-sm);
+    padding:10px 14px; margin-bottom:14px; font-size:13.5px; color:var(--ink-dim);
+    display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;
+  }
+  .selected-line b{color:var(--ink); font-family:'Space Grotesk',sans-serif;}
+
+  /* ---------- Stat pad ---------- */
+  .statpad{display:grid; grid-template-columns:repeat(3,1fr); gap:9px; margin-bottom:14px;}
+  .stat-btn{
+    border-radius:var(--radius-sm);
+    border:1px solid var(--line);
+    background:var(--panel-hi);
+    color:var(--ink);
+    min-height:64px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:2px;
+    cursor:pointer;
+    font-family:'Inter',sans-serif;
+  }
+  .stat-btn .lbl{font-size:12.5px; font-weight:600;}
+  .stat-btn .sub{font-size:10.5px; color:var(--ink-faint); font-weight:600;}
+  .stat-btn.make{border-color:rgba(51,193,123,.4);}
+  .stat-btn.make .lbl{color:var(--make);}
+  .stat-btn.miss{border-color:rgba(229,72,77,.35);}
+  .stat-btn.miss .lbl{color:var(--miss);}
+  .stat-btn.flash{background:var(--panel-hi2); transform:scale(0.96);}
+  .stat-btn:disabled{opacity:.35; cursor:not-allowed;}
+
+  .action-bar{display:flex; gap:10px; margin-bottom:6px;}
+  .action-bar .btn{flex:1;}
+
+  /* ---------- Box score table ---------- */
+  table.boxscore{width:100%; border-collapse:collapse; font-size:12.5px;}
+  table.boxscore th, table.boxscore td{
+    padding:8px 6px; text-align:center; border-bottom:1px solid var(--line); white-space:nowrap;
+  }
+  table.boxscore th{color:var(--ink-dim); font-weight:600; font-size:11px;}
+  table.boxscore td.name-cell{text-align:left; font-weight:600;}
+  table.boxscore tfoot td{font-weight:700; border-top:2px solid var(--line); border-bottom:none;}
+  .table-scroll{overflow-x:auto;}
+
+  /* ---------- Roster list ---------- */
+  .player-row{
+    display:flex; align-items:center; gap:12px;
+    background:var(--panel-hi); border:1px solid var(--line); border-radius:var(--radius-sm);
+    padding:10px 12px; margin-bottom:8px;
+  }
+  .player-row .circle{
+    width:38px;height:38px;border-radius:50%; background:var(--panel-hi2);
+    display:flex; align-items:center; justify-content:center; font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:14px;
+    flex:0 0 auto;
+  }
+  .player-row .pname{flex:1; font-weight:600; font-size:14.5px;}
+  .player-row .rm{background:none; border:none; color:var(--ink-faint); font-size:20px; cursor:pointer; padding:4px 6px;}
+
+  /* ---------- History ---------- */
+  .game-row{
+    background:var(--panel-hi); border:1px solid var(--line); border-radius:var(--radius-sm);
+    padding:12px 14px; margin-bottom:8px; cursor:pointer;
+  }
+  .game-row .top-line{display:flex; justify-content:space-between; align-items:center;}
+  .badge{font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px;}
+  .badge.win{background:rgba(51,193,123,.18); color:var(--make);}
+  .badge.loss{background:rgba(229,72,77,.18); color:var(--miss);}
+  .game-row .date{font-size:11.5px; color:var(--ink-faint); margin-top:3px;}
+
+  /* ---------- Modal ---------- */
+  .modal-back{
+    position:fixed; inset:0; background:rgba(8,11,13,.72);
+    display:flex; align-items:flex-end; justify-content:center; z-index:150;
+  }
+  .modal{
+    width:100%; max-width:520px; background:var(--panel);
+    border:1px solid var(--line); border-radius:20px 20px 0 0;
+    padding:20px 18px calc(20px + var(--safe-bottom));
+  }
+  .modal .row{margin-top:14px;}
+
+  .empty{text-align:center; padding:40px 10px; color:var(--ink-dim);}
+  .empty .big{font-size:38px; margin-bottom:8px;}
+
+  @media (min-width:600px){
+    .statpad{grid-template-columns:repeat(4,1fr);}
+    .sb-score{font-size:40px;}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="content"></div>
+  <nav id="bottomNav">
+    <button data-tab="live"><span class="dot"></span>Live Game</button>
+    <button data-tab="roster"><span class="dot"></span>Roster</button>
+    <button data-tab="history"><span class="dot"></span>History</button>
+  </nav>
+</div>
+<div class="toast" id="toast"></div>
+<div id="modalRoot"></div>
+
+<script>
+/* =========================================================
+   STATE
+========================================================= */
+let roster = { teamName: 'My Team', players: [] };
+let activeGame = null;      // {id, opponent, date, quarter, oppScore, selectedPlayerId, playerStats:{id:{...}}, log:[...]}
+let history = [];           // array of finished game objects (same shape as activeGame + result)
+let currentTab = 'live';
+let liveSubTab = 'us';
+let loaded = false;
+
+const STAT_ACTIONS = [
+  { key:'fg2m', label:'2PT Make', sub:'+2 pts', cls:'make', inc:{fgm:1,fga:1,pts:2} },
+  { key:'fg2a', label:'2PT Miss', sub:'', cls:'miss', inc:{fga:1} },
+  { key:'fg3m', label:'3PT Make', sub:'+3 pts', cls:'make', inc:{fgm:1,fga:1,tpm:1,tpa:1,pts:3} },
+  { key:'fg3a', label:'3PT Miss', sub:'', cls:'miss', inc:{fga:1,tpa:1} },
+  { key:'ftm',  label:'FT Make',  sub:'+1 pt', cls:'make', inc:{ftm:1,fta:1,pts:1} },
+  { key:'fta',  label:'FT Miss',  sub:'', cls:'miss', inc:{fta:1} },
+  { key:'reb',  label:'Rebound',  sub:'', cls:'', inc:{reb:1} },
+  { key:'ast',  label:'Assist',   sub:'', cls:'', inc:{ast:1} },
+  { key:'stl',  label:'Steal',    sub:'', cls:'', inc:{stl:1} },
+  { key:'blk',  label:'Block',    sub:'', cls:'', inc:{blk:1} },
+  { key:'tov',  label:'Turnover', sub:'', cls:'miss', inc:{tov:1} },
+  { key:'pf',   label:'Foul',     sub:'', cls:'miss', inc:{pf:1} },
+];
+
+const BLANK_LINE = () => ({pts:0,reb:0,ast:0,stl:0,blk:0,tov:0,pf:0,fgm:0,fga:0,tpm:0,tpa:0,ftm:0,fta:0});
+
+// Opponent is tracked as team-level counters only — no per-player detail needed.
+const OPP_STAT_ACTIONS = [
+  { key:'fg2m', label:'2PT Make', sub:'+2 pts', cls:'make', pts:2 },
+  { key:'fg2a', label:'2PT Miss', sub:'', cls:'miss', pts:0 },
+  { key:'fg3m', label:'3PT Make', sub:'+3 pts', cls:'make', pts:3 },
+  { key:'fg3a', label:'3PT Miss', sub:'', cls:'miss', pts:0 },
+  { key:'oreb', label:'Off. Rebound', sub:'', cls:'', pts:0 },
+  { key:'dreb', label:'Def. Rebound', sub:'', cls:'', pts:0 },
+  { key:'tov',  label:'Turnover', sub:'', cls:'miss', pts:0 },
+  { key:'fta',  label:'FT Attempt', sub:'', cls:'', pts:0 },
+  { key:'pf',   label:'Foul', sub:'', cls:'miss', pts:0 },
+];
+const BLANK_OPP = () => ({fg2m:0,fg2a:0,fg3m:0,fg3a:0,oreb:0,dreb:0,tov:0,fta:0,pf:0});
+function ensureOppStats(g){ g.oppStats = Object.assign(BLANK_OPP(), g.oppStats||{}); }
+const BLANK_FB = () => ({us:0, opp:0});
+function ensureFastBreak(g){ g.fastBreak = Object.assign(BLANK_FB(), g.fastBreak||{}); }
+// Transient (not persisted): whether the "next made basket is a fast break" toggle is armed, per side.
+let fbArmed = { us:false, opp:false };
+
+function uid(prefix){ return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+
+/* =========================================================
+   STORAGE
+   Priority: Supabase (if the coach has connected it, works
+   across every device) > Claude's built-in storage (when
+   running inside Claude) > browser localStorage (this device
+   only). Same get/set shape either way, so the rest of the
+   app never needs to know which one is active.
+========================================================= */
+function getSupabaseConfig(){
+  try{
+    const raw = localStorage.getItem('courtside:supabaseConfig');
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+function setSupabaseConfig(cfg){ localStorage.setItem('courtside:supabaseConfig', JSON.stringify(cfg)); }
+function clearSupabaseConfig(){ localStorage.removeItem('courtside:supabaseConfig'); }
+
+const supabaseConfig = getSupabaseConfig();
+let sb = null;
+if(supabaseConfig && supabaseConfig.url && supabaseConfig.anonKey && window.supabase && window.supabase.createClient){
+  sb = window.supabase.createClient(supabaseConfig.url, supabaseConfig.anonKey);
+}
+
+const usingClaudeStorage = (typeof window.storage !== 'undefined') && window.storage && typeof window.storage.get === 'function';
+
+const store = sb ? {
+  async get(key){
+    const { data, error } = await sb.from('courtside_kv').select('value').eq('key', key).maybeSingle();
+    if(error) throw error;
+    if(!data) throw new Error('not found');
+    return { key, value: data.value, shared:true };
+  },
+  async set(key, value){
+    const { error } = await sb.from('courtside_kv').upsert({ key, value, updated_at: new Date().toISOString() });
+    if(error) throw error;
+    return { key, value, shared:true };
+  }
+} : usingClaudeStorage ? window.storage : {
+  async get(key){
+    const raw = localStorage.getItem('courtside:'+key);
+    if(raw===null) throw new Error('not found');
+    return { key, value: raw, shared: false };
+  },
+  async set(key, value){
+    localStorage.setItem('courtside:'+key, value);
+    return { key, value, shared: false };
+  }
+};
+
+async function loadAll(){
+  try{
+    const [r, g, h] = await Promise.allSettled([
+      store.get('roster'),
+      store.get('activeGame'),
+      store.get('gameHistory'),
+    ]);
+    if(r.status==='fulfilled' && r.value) roster = JSON.parse(r.value.value);
+    if(g.status==='fulfilled' && g.value) activeGame = JSON.parse(g.value.value);
+    if(h.status==='fulfilled' && h.value) history = JSON.parse(h.value.value);
+  }catch(e){ console.error('load error', e); }
+  loaded = true;
+  render();
+}
+async function saveRoster(){
+  try{ await store.set('roster', JSON.stringify(roster), false); }
+  catch(e){ toast('Could not save roster — check connection'); }
+}
+async function saveActiveGame(){
+  try{ await store.set('activeGame', activeGame ? JSON.stringify(activeGame) : JSON.stringify(null), false); }
+  catch(e){ toast('Could not save game — check connection'); }
+}
+async function saveHistory(){
+  try{ await store.set('gameHistory', JSON.stringify(history), false); }
+  catch(e){ toast('Could not save history — check connection'); }
+}
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+/* =========================================================
+   RENDER ROOT
+========================================================= */
+function render(){
+  document.querySelectorAll('#bottomNav button').forEach(b=>{
+    b.classList.toggle('active', b.dataset.tab===currentTab);
+  });
+  const content = document.getElementById('content');
+  if(!loaded){ content.innerHTML = '<div class="empty"><div class="big">🏀</div>Loading your team…</div>'; return; }
+  if(currentTab==='live') renderLive(content);
+  else if(currentTab==='roster') renderRoster(content);
+  else renderHistory(content);
+}
+
+document.getElementById('bottomNav').addEventListener('click', e=>{
+  const btn = e.target.closest('button[data-tab]');
+  if(!btn) return;
+  currentTab = btn.dataset.tab;
+  render();
+});
+
+/* =========================================================
+   LIVE TAB
+========================================================= */
+function renderLive(content){
+  if(roster.players.length===0){
+    content.innerHTML = `
+      <div class="empty">
+        <div class="big">🏀</div>
+        <h2>Add your players first</h2>
+        <p class="muted">Head to the Roster tab and add your team before starting a game.</p>
+        <br/>
+        <button class="btn primary" id="goRoster">Go to Roster</button>
+      </div>`;
+    content.querySelector('#goRoster').onclick = ()=>{ currentTab='roster'; render(); };
+    return;
+  }
+
+  if(!activeGame){
+    content.innerHTML = `
+      <div class="empty">
+        <div class="big">🏀</div>
+        <h2>No game in progress</h2>
+        <p class="muted">Start a game to begin tracking live stats for ${escapeHtml(roster.teamName)}.</p>
+        <br/>
+        <button class="btn primary block" id="startGameBtn" style="max-width:260px;margin:0 auto;">Start New Game</button>
+      </div>`;
+    content.querySelector('#startGameBtn').onclick = openStartGameModal;
+    return;
+  }
+
+  const g = activeGame;
+  ensureOppStats(g);
+  ensureFastBreak(g);
+  const teamTotal = totalPts(g.playerStats);
+  const sel = g.selectedPlayerId ? g.playerStats[g.selectedPlayerId] : null;
+  const sub = liveSubTab;
+
+  content.innerHTML = `
+    <div class="quarters">
+      ${['Q1','Q2','Q3','Q4','OT'].map(q=>`<button data-q="${q}" class="${g.quarter===q?'active':''}">${q}</button>`).join('')}
+    </div>
+
+    <div class="scoreboard">
+      <div class="sb-team">
+        <div class="sb-name">${escapeHtml(roster.teamName)}</div>
+        <div class="sb-score num">${teamTotal}</div>
+        <div class="muted" style="font-size:10.5px;margin-top:2px;">⚡ ${g.fastBreak.us} fast break</div>
+      </div>
+      <div class="sb-mid"><div class="sb-vs">VS</div></div>
+      <div class="sb-team">
+        <div class="sb-name">${escapeHtml(g.opponent)}</div>
+        <div class="sb-score num">${g.oppScore}</div>
+        <div class="muted" style="font-size:10.5px;margin-top:2px;">⚡ ${g.fastBreak.opp} fast break</div>
+        <div class="opp-add">
+          <button data-opp="1">+1 FT</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="subtoggle">
+      <button data-sub="us" class="${sub==='us'?'active':''}">Our Team</button>
+      <button data-sub="opp" class="${sub==='opp'?'active':''}">Opponent</button>
+    </div>
+
+    ${sub==='us' ? `
+    <div class="rail" id="rail">
+      ${roster.players.map(p=>`
+        <div class="chip ${g.selectedPlayerId===p.id?'selected':''}" data-pid="${p.id}">
+          <div class="circle">${escapeHtml(p.number)}</div>
+          <div class="name">${escapeHtml(p.name.split(' ')[0])}</div>
+        </div>`).join('')}
+    </div>
+
+    ${sel ? `
+      <div class="selected-line">
+        <span>${escapeHtml(nameOf(g.selectedPlayerId))} · #${escapeHtml(numberOf(g.selectedPlayerId))}</span>
+        <span><b>${sel.pts}</b> PTS &nbsp; ${sel.reb} REB &nbsp; ${sel.ast} AST &nbsp; ${sel.stl} STL &nbsp; ${sel.blk} BLK &nbsp; ${sel.tov} TO &nbsp; ${sel.pf} PF</span>
+      </div>` : `<div class="selected-line">Tap a player above, then tap what happened below.</div>`}
+
+    <button class="btn ${fbArmed.us?'primary':''} block" id="fbToggleUs" style="margin-bottom:10px;">
+      ⚡ Fast Break${fbArmed.us?' — tap the make now':''}
+    </button>
+
+    <div class="statpad" id="statpad">
+      ${STAT_ACTIONS.map(a=>`
+        <button class="stat-btn ${a.cls}" data-key="${a.key}" ${!g.selectedPlayerId?'disabled':''}>
+          <div class="lbl">${a.label}</div>
+          ${a.sub?`<div class="sub">${a.sub}</div>`:''}
+        </button>`).join('')}
+    </div>
+    ` : `
+    <p class="muted" style="margin-bottom:10px;">Team-level stats for ${escapeHtml(g.opponent)} — no player needed, just tally what they do.</p>
+
+    <button class="btn ${fbArmed.opp?'primary':''} block" id="fbToggleOpp" style="margin-bottom:10px;">
+      ⚡ Fast Break${fbArmed.opp?' — tap their make now':''}
+    </button>
+
+    <div class="statpad" id="oppStatpad">
+      ${OPP_STAT_ACTIONS.map(a=>`
+        <button class="stat-btn ${a.cls}" data-oppkey="${a.key}">
+          <div class="lbl">${a.label}</div>
+          <div class="sub num">${g.oppStats[a.key]||0}</div>
+        </button>`).join('')}
+    </div>
+    `}
+
+    <div class="action-bar">
+      <button class="btn" id="undoBtn" ${g.log.length===0?'disabled':''}>↺ Undo</button>
+      <button class="btn" id="boxBtn">Box Score</button>
+    </div>
+    <button class="btn danger-outline block" id="endGameBtn" style="margin-top:10px;">End Game</button>
+  `;
+
+  // quarter
+  content.querySelectorAll('[data-q]').forEach(b=> b.onclick = ()=>{ g.quarter=b.dataset.q; saveActiveGame(); render(); });
+  // us / opponent sub-toggle
+  content.querySelectorAll('[data-sub]').forEach(b=> b.onclick = ()=>{ liveSubTab = b.dataset.sub; render(); });
+  // fast break arm toggles
+  const fbUsBtn = content.querySelector('#fbToggleUs');
+  if(fbUsBtn) fbUsBtn.onclick = ()=>{ fbArmed.us = !fbArmed.us; render(); };
+  const fbOppBtn = content.querySelector('#fbToggleOpp');
+  if(fbOppBtn) fbOppBtn.onclick = ()=>{ fbArmed.opp = !fbArmed.opp; render(); };
+  // opponent team-stat buttons
+  content.querySelectorAll('[data-oppkey]').forEach(btn=> btn.onclick = ()=>{
+    applyOppStat(g, btn.dataset.oppkey);
+    btn.classList.add('flash');
+    if(navigator.vibrate) navigator.vibrate(8);
+    saveActiveGame();
+    render();
+  });
+  // opponent score
+  content.querySelectorAll('[data-opp]').forEach(b=> b.onclick = ()=>{
+    const d = parseInt(b.dataset.opp,10);
+    g.oppScore += d;
+    g.log.push({type:'opp', delta:d});
+    saveActiveGame(); render();
+  });
+  // player select
+  content.querySelectorAll('[data-pid]').forEach(el=> el.onclick = ()=>{
+    g.selectedPlayerId = (g.selectedPlayerId===el.dataset.pid) ? g.selectedPlayerId : el.dataset.pid;
+    g.selectedPlayerId = el.dataset.pid;
+    if(!g.playerStats[el.dataset.pid]){
+      const p = roster.players.find(pp=>pp.id===el.dataset.pid);
+      g.playerStats[el.dataset.pid] = Object.assign(BLANK_LINE(), {name:p.name, number:p.number});
+    }
+    saveActiveGame(); render();
+  });
+  // stat buttons
+  content.querySelectorAll('[data-key]').forEach(btn=> btn.onclick = ()=>{
+    if(!g.selectedPlayerId) return;
+    const action = STAT_ACTIONS.find(a=>a.key===btn.dataset.key);
+    applyStat(g, g.selectedPlayerId, action);
+    btn.classList.add('flash');
+    if(navigator.vibrate) navigator.vibrate(8);
+    setTimeout(()=>btn.classList.remove('flash'), 150);
+    saveActiveGame();
+    render();
+  });
+  content.querySelector('#undoBtn').onclick = ()=>{ undoLast(g); saveActiveGame(); render(); };
+  content.querySelector('#boxBtn').onclick = ()=> openBoxScoreModal(g, roster.teamName, g.opponent);
+  content.querySelector('#endGameBtn').onclick = ()=> confirmEndGame(g);
+}
+
+function applyStat(g, pid, action){
+  const line = g.playerStats[pid];
+  Object.entries(action.inc).forEach(([k,v])=>{ line[k] = (line[k]||0) + v; });
+  let fbPts = 0;
+  if(fbArmed.us && action.inc.pts){
+    ensureFastBreak(g);
+    fbPts = action.inc.pts;
+    g.fastBreak.us += fbPts;
+    fbArmed.us = false;
+  }
+  g.log.push({type:'stat', pid, key:action.key, inc:action.inc, fbPts, fbSide: fbPts?'us':null});
+}
+function undoLast(g){
+  const last = g.log.pop();
+  if(!last) return;
+  if(last.type==='opp'){ g.oppScore -= last.delta; }
+  else if(last.type==='stat'){
+    const line = g.playerStats[last.pid];
+    Object.entries(last.inc).forEach(([k,v])=>{ line[k] -= v; });
+    if(last.fbPts){ ensureFastBreak(g); g.fastBreak[last.fbSide] -= last.fbPts; }
+  }
+  else if(last.type==='oppstat'){
+    ensureOppStats(g);
+    g.oppStats[last.key] -= 1;
+    if(last.pts) g.oppScore -= last.pts;
+    if(last.fbPts){ ensureFastBreak(g); g.fastBreak[last.fbSide] -= last.fbPts; }
+  }
+}
+function applyOppStat(g, key){
+  ensureOppStats(g);
+  g.oppStats[key] = (g.oppStats[key]||0) + 1;
+  const action = OPP_STAT_ACTIONS.find(a=>a.key===key);
+  const pts = (action && action.pts) ? action.pts : 0;
+  if(pts) g.oppScore += pts;
+  let fbPts = 0;
+  if(fbArmed.opp && pts){
+    ensureFastBreak(g);
+    fbPts = pts;
+    g.fastBreak.opp += fbPts;
+    fbArmed.opp = false;
+  }
+  g.log.push({type:'oppstat', key, pts, fbPts, fbSide: fbPts?'opp':null});
+}
+function totalPts(playerStats){ return Object.values(playerStats).reduce((s,l)=>s+l.pts,0); }
+function nameOf(pid){ const p = roster.players.find(p=>p.id===pid); return p?p.name:'Player'; }
+function numberOf(pid){ const p = roster.players.find(p=>p.id===pid); return p?p.number:''; }
+
+function openStartGameModal(){
+  showModal(`
+    <h3>Start New Game</h3>
+    <label class="field">Opponent name</label>
+    <input type="text" id="oppInput" placeholder="e.g. Riverside Hawks" />
+    <div class="row">
+      <button class="btn" id="cancelStart">Cancel</button>
+      <button class="btn primary" id="confirmStart">Start Game</button>
+    </div>
+  `);
+  document.getElementById('oppInput').focus();
+  document.getElementById('cancelStart').onclick = closeModal;
+  document.getElementById('confirmStart').onclick = ()=>{
+    const opp = document.getElementById('oppInput').value.trim() || 'Opponent';
+    activeGame = {
+      id: uid('g'),
+      opponent: opp,
+      date: new Date().toISOString(),
+      quarter: 'Q1',
+      oppScore: 0,
+      selectedPlayerId: null,
+      playerStats: {},
+      oppStats: BLANK_OPP(),
+      fastBreak: BLANK_FB(),
+      log: [],
+    };
+    liveSubTab = 'us';
+    fbArmed = { us:false, opp:false };
+    saveActiveGame();
+    closeModal();
+    render();
+  };
+}
+
+function confirmEndGame(g){
+  showModal(`
+    <h3>End this game?</h3>
+    <p class="muted">Final score: ${escapeHtml(roster.teamName)} ${totalPts(g.playerStats)} — ${escapeHtml(g.opponent)} ${g.oppScore}. This will save the box score to History.</p>
+    <div class="row">
+      <button class="btn" id="cancelEnd">Keep Playing</button>
+      <button class="btn primary" id="confirmEnd">End &amp; Save</button>
+    </div>
+  `);
+  document.getElementById('cancelEnd').onclick = closeModal;
+  document.getElementById('confirmEnd').onclick = async ()=>{
+    const teamTotal = totalPts(g.playerStats);
+    const finished = Object.assign({}, g, {
+      teamName: roster.teamName,
+      finalTeam: teamTotal,
+      finalOpp: g.oppScore,
+      result: teamTotal>g.oppScore ? 'W' : (teamTotal<g.oppScore ? 'L' : 'T'),
+      endedAt: new Date().toISOString(),
+    });
+    history.unshift(finished);
+    activeGame = null;
+    await saveHistory();
+    await saveActiveGame();
+    closeModal();
+    currentTab='history';
+    render();
+  };
+}
+
+/* =========================================================
+   BOX SCORE (shared by live + history)
+========================================================= */
+function boxScoreTable(playerStats, teamLabel){
+  const rows = Object.entries(playerStats)
+    .map(([pid,l])=>Object.assign({pid}, l))
+    .sort((a,b)=> b.pts - a.pts);
+  const totals = BLANK_LINE();
+  rows.forEach(r=> Object.keys(totals).forEach(k=> totals[k]+= r[k]||0));
+  const fg = (m,a)=> `${m}/${a}`;
+  return `
+  <div class="table-scroll">
+  <table class="boxscore">
+    <thead><tr>
+      <th style="text-align:left;">${escapeHtml(teamLabel)}</th>
+      <th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>TO</th><th>PF</th><th>FG</th><th>3P</th><th>FT</th>
+    </tr></thead>
+    <tbody>
+      ${rows.map(r=>`
+        <tr>
+          <td class="name-cell">#${escapeHtml(r.number)} ${escapeHtml(r.name)}</td>
+          <td class="num">${r.pts}</td><td class="num">${r.reb}</td><td class="num">${r.ast}</td>
+          <td class="num">${r.stl}</td><td class="num">${r.blk}</td><td class="num">${r.tov}</td><td class="num">${r.pf}</td>
+          <td class="num">${fg(r.fgm,r.fga)}</td><td class="num">${fg(r.tpm,r.tpa)}</td><td class="num">${fg(r.ftm,r.fta)}</td>
+        </tr>`).join('')}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td class="name-cell">Team</td>
+        <td class="num">${totals.pts}</td><td class="num">${totals.reb}</td><td class="num">${totals.ast}</td>
+        <td class="num">${totals.stl}</td><td class="num">${totals.blk}</td><td class="num">${totals.tov}</td><td class="num">${totals.pf}</td>
+        <td class="num">${fg(totals.fgm,totals.fga)}</td><td class="num">${fg(totals.tpm,totals.tpa)}</td><td class="num">${fg(totals.ftm,totals.fta)}</td>
+      </tr>
+    </tfoot>
+  </table>
+  </div>`;
+}
+function oppStatsBlock(g){
+  ensureOppStats(g);
+  const o = g.oppStats;
+  const item = (label,val)=> `<span style="min-width:70px;">${label} <b class="num" style="color:var(--ink);">${val}</b></span>`;
+  return `
+  <div class="card" style="margin-top:0;">
+    <h3 style="font-size:14px;">${escapeHtml(g.opponent)} — team stats</h3>
+    <div class="muted" style="display:flex; flex-wrap:wrap; gap:10px 16px; margin-top:6px;">
+      ${item('2PT', `${o.fg2m}/${o.fg2m+o.fg2a}`)}
+      ${item('3PT', `${o.fg3m}/${o.fg3m+o.fg3a}`)}
+      ${item('OREB', o.oreb)}${item('DREB', o.dreb)}${item('TOV', o.tov)}${item('FTA', o.fta)}${item('PF', o.pf)}
+    </div>
+  </div>`;
+}
+function fastBreakLine(g, teamName){
+  ensureFastBreak(g);
+  return `<p class="muted" style="margin:-6px 0 12px;">⚡ Fast break points — ${escapeHtml(teamName)}: <b style="color:var(--ink)">${g.fastBreak.us}</b> &nbsp; ${escapeHtml(g.opponent)}: <b style="color:var(--ink)">${g.fastBreak.opp}</b></p>`;
+}
+
+/* ---- CSV export ---- */
+function csvEscape(v){
+  v = String(v==null?'':v);
+  if(/[",\n]/.test(v)) v = '"'+v.replace(/"/g,'""')+'"';
+  return v;
+}
+function toCSV(rows){ return rows.map(r=> r.map(csvEscape).join(',')).join('\r\n'); }
+function downloadCSV(filename, rows){
+  const csv = toCSV(rows);
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+function csvFilename(g){
+  const d = new Date(g.date);
+  const safeOpp = String(g.opponent||'opponent').replace(/[^a-z0-9]+/gi,'_');
+  return `game_${d.toISOString().slice(0,10)}_vs_${safeOpp}.csv`;
+}
+function gameCSVRows(g, teamName){
+  ensureOppStats(g);
+  ensureFastBreak(g);
+  const rows = [['Player','Number','PTS','REB','AST','STL','BLK','TOV','PF','FGM','FGA','3PM','3PA','FTM','FTA']];
+  Object.values(g.playerStats).forEach(l=>{
+    rows.push([l.name,l.number,l.pts,l.reb,l.ast,l.stl,l.blk,l.tov,l.pf,l.fgm,l.fga,l.tpm,l.tpa,l.ftm,l.fta]);
+  });
+  rows.push([]);
+  rows.push([`Opponent (${g.opponent}) team stats`]);
+  rows.push(['2PM','2PA','3PM','3PA','OREB','DREB','TOV','FTA','PF']);
+  const o = g.oppStats;
+  rows.push([o.fg2m, o.fg2m+o.fg2a, o.fg3m, o.fg3m+o.fg3a, o.oreb, o.dreb, o.tov, o.fta, o.pf]);
+  rows.push([]);
+  rows.push(['Fast break points', teamName, g.fastBreak.us, g.opponent, g.fastBreak.opp]);
+  rows.push([]);
+  const teamTotal = g.finalTeam!==undefined ? g.finalTeam : totalPts(g.playerStats);
+  const oppTotal = g.finalOpp!==undefined ? g.finalOpp : g.oppScore;
+  rows.push(['Final score', teamName, teamTotal, 'vs', g.opponent, oppTotal]);
+  return rows;
+}
+function seasonCSVRows(){
+  const header = ['Date','Opponent','Result','Player','Number','PTS','REB','AST','STL','BLK','TOV','PF','FGM','FGA','3PM','3PA','FTM','FTA','Opp_2PM','Opp_2PA','Opp_3PM','Opp_3PA','Opp_OREB','Opp_DREB','Opp_TOV','Opp_FTA','Opp_PF','FastBreak_Us','FastBreak_Opp'];
+  const rows = [header];
+  history.forEach(g=>{
+    ensureOppStats(g);
+    ensureFastBreak(g);
+    const dateStr = new Date(g.date).toISOString().slice(0,10);
+    Object.values(g.playerStats).forEach(l=>{
+      rows.push([dateStr, g.opponent, g.result, l.name, l.number, l.pts,l.reb,l.ast,l.stl,l.blk,l.tov,l.pf,l.fgm,l.fga,l.tpm,l.tpa,l.ftm,l.fta,
+        g.oppStats.fg2m, g.oppStats.fg2m+g.oppStats.fg2a, g.oppStats.fg3m, g.oppStats.fg3m+g.oppStats.fg3a,
+        g.oppStats.oreb, g.oppStats.dreb, g.oppStats.tov, g.oppStats.fta, g.oppStats.pf,
+        g.fastBreak.us, g.fastBreak.opp]);
+    });
+  });
+  return rows;
+}
+
+function openBoxScoreModal(g, teamName, opponent){
+  showModal(`
+    <h3>Box Score</h3>
+    <p class="muted" style="margin-bottom:10px;">${escapeHtml(g.quarter||'')} · vs ${escapeHtml(opponent)}</p>
+    ${Object.keys(g.playerStats).length ? boxScoreTable(g.playerStats, teamName) : '<p class="muted">No stats logged yet.</p>'}
+    ${fastBreakLine(g, teamName)}
+    ${oppStatsBlock(g)}
+    <div class="row" style="margin-top:14px;">
+      <button class="btn" id="exportBox">Export CSV</button>
+      <button class="btn primary" id="closeBox">Close</button>
+    </div>
+  `);
+  document.getElementById('closeBox').onclick = closeModal;
+  document.getElementById('exportBox').onclick = ()=> downloadCSV(csvFilename(g), gameCSVRows(g, teamName));
+}
+
+/* =========================================================
+   ROSTER TAB
+========================================================= */
+function cloudStatusLabel(){
+  if(sb) return 'Connected — your data syncs across every device.';
+  if(usingClaudeStorage) return 'Saved via Claude while you use this app here.';
+  return 'Saved locally on this device/browser only.';
+}
+function renderRoster(content){
+  content.innerHTML = `
+    <div class="card">
+      <label class="field">Team name</label>
+      <input type="text" id="teamNameInput" value="${escapeHtml(roster.teamName)}" />
+    </div>
+
+    <div class="card">
+      <h3>Cloud Sync</h3>
+      <p class="muted">${cloudStatusLabel()}</p>
+      <div class="row" style="margin-top:10px;">
+        ${sb
+          ? `<button class="btn danger-outline block" id="disconnectSb">Disconnect</button>`
+          : `<button class="btn primary block" id="setupSb">Set up Cloud Sync</button>`}
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Players</h3>
+      <div id="playerList">
+        ${roster.players.length ? roster.players.map(p=>`
+          <div class="player-row">
+            <div class="circle">${escapeHtml(p.number)}</div>
+            <div class="pname">${escapeHtml(p.name)}</div>
+            <button class="rm" data-rm="${p.id}">×</button>
+          </div>`).join('') : '<p class="muted">No players yet — add your first one below.</p>'}
+      </div>
+      <div class="row" style="margin-top:12px;">
+        <input type="text" id="newName" placeholder="Player name" />
+        <input type="number" id="newNumber" placeholder="#" style="max-width:80px;" />
+      </div>
+      <button class="btn primary block" id="addPlayerBtn" style="margin-top:10px;">Add Player</button>
+    </div>
+  `;
+  const teamInput = content.querySelector('#teamNameInput');
+  teamInput.onchange = ()=>{ roster.teamName = teamInput.value.trim() || 'My Team'; saveRoster(); render(); };
+
+  const setupBtn = content.querySelector('#setupSb');
+  if(setupBtn) setupBtn.onclick = openSupabaseSetupModal;
+  const disconnectBtn = content.querySelector('#disconnectSb');
+  if(disconnectBtn) disconnectBtn.onclick = ()=>{
+    showModal(`
+      <h3>Disconnect Cloud Sync?</h3>
+      <p class="muted">Your data stays in the cloud database, but this device will switch back to saving locally only.</p>
+      <div class="row">
+        <button class="btn" id="cancelDc">Cancel</button>
+        <button class="btn danger-outline" id="confirmDc">Disconnect</button>
+      </div>
+    `);
+    document.getElementById('cancelDc').onclick = closeModal;
+    document.getElementById('confirmDc').onclick = ()=>{ clearSupabaseConfig(); location.reload(); };
+  };
+
+  content.querySelectorAll('[data-rm]').forEach(b=> b.onclick = ()=>{
+    roster.players = roster.players.filter(p=>p.id!==b.dataset.rm);
+    saveRoster(); render();
+  });
+
+  content.querySelector('#addPlayerBtn').onclick = ()=>{
+    const nameEl = content.querySelector('#newName');
+    const numEl = content.querySelector('#newNumber');
+    const name = nameEl.value.trim();
+    const number = numEl.value.trim();
+    if(!name){ toast('Enter a player name'); return; }
+    roster.players.push({ id: uid('p'), name, number: number || '0' });
+    saveRoster();
+    render();
+  };
+}
+
+function openSupabaseSetupModal(){
+  showModal(`
+    <h3>Set up Cloud Sync</h3>
+    <p class="muted">Paste your Supabase project URL and anon public key — find both under Settings → API in your Supabase project.</p>
+    <label class="field">Project URL</label>
+    <input type="text" id="sbUrl" placeholder="https://xxxxx.supabase.co" />
+    <label class="field">Anon public key</label>
+    <input type="text" id="sbKey" placeholder="eyJhbGciOi..." />
+    <p class="muted" id="sbError" style="color:var(--miss); min-height:16px; margin-top:8px;"></p>
+    <div class="row">
+      <button class="btn" id="sbCancel">Cancel</button>
+      <button class="btn primary" id="sbSave">Connect</button>
+    </div>
+  `);
+  document.getElementById('sbCancel').onclick = closeModal;
+  document.getElementById('sbSave').onclick = async ()=>{
+    const url = document.getElementById('sbUrl').value.trim();
+    const key = document.getElementById('sbKey').value.trim();
+    const errEl = document.getElementById('sbError');
+    if(!url || !key){ errEl.textContent = 'Enter both the Project URL and anon key.'; return; }
+    if(!window.supabase || !window.supabase.createClient){ errEl.textContent = 'Could not load the Supabase library — check your internet connection.'; return; }
+    let testClient;
+    try{
+      testClient = window.supabase.createClient(url, key);
+      const { error } = await testClient.from('courtside_kv').select('key').limit(1);
+      if(error) throw error;
+    }catch(e){
+      errEl.textContent = 'Could not connect — check the URL, the key, and that you ran the setup SQL in Supabase.';
+      return;
+    }
+    // Carry over whatever is currently saved so nothing gets lost on switch.
+    try{
+      const now = new Date().toISOString();
+      await testClient.from('courtside_kv').upsert({ key:'roster', value: JSON.stringify(roster), updated_at: now });
+      await testClient.from('courtside_kv').upsert({ key:'activeGame', value: JSON.stringify(activeGame), updated_at: now });
+      await testClient.from('courtside_kv').upsert({ key:'gameHistory', value: JSON.stringify(history), updated_at: now });
+    }catch(e){ /* non-fatal — proceed even if migration copy fails */ }
+    setSupabaseConfig({ url, anonKey:key });
+    location.reload();
+  };
+}
+
+/* =========================================================
+   HISTORY TAB
+========================================================= */
+function renderHistory(content){
+  if(history.length===0){
+    content.innerHTML = `<div class="empty"><div class="big">📋</div><h2>No games yet</h2><p class="muted">Finished games will show up here with their full box score.</p></div>`;
+    return;
+  }
+  content.innerHTML = `
+    <button class="btn block" id="exportSeason" style="margin-bottom:12px;">Export Season CSV</button>
+    ${history.map((g,idx)=>`
+    <div class="game-row" data-idx="${idx}">
+      <div class="top-line">
+        <span><b>${escapeHtml(g.finalTeam)}</b> — ${escapeHtml(g.finalOpp)} vs ${escapeHtml(g.opponent)}</span>
+        <span class="badge ${g.result==='W'?'win':(g.result==='L'?'loss':'')}">${g.result==='T'?'TIE':g.result}</span>
+      </div>
+      <div class="date">${new Date(g.date).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'})}</div>
+    </div>
+  `).join('')}`;
+  content.querySelector('#exportSeason').onclick = ()=> downloadCSV('season_stats.csv', seasonCSVRows());
+  content.querySelectorAll('.game-row').forEach(el=> el.onclick = ()=>{
+    const g = history[parseInt(el.dataset.idx,10)];
+    showModal(`
+      <h3>vs ${escapeHtml(g.opponent)}</h3>
+      <p class="muted" style="margin-bottom:10px;">${new Date(g.date).toLocaleDateString(undefined,{month:'long',day:'numeric',year:'numeric'})} · Final: ${g.finalTeam}-${g.finalOpp}</p>
+      ${boxScoreTable(g.playerStats, g.teamName)}
+      ${fastBreakLine(g, g.teamName)}
+      ${oppStatsBlock(g)}
+      <div class="row" style="margin-top:14px;">
+        <button class="btn danger-outline" id="deleteGame">Delete</button>
+        <button class="btn" id="exportGame">Export CSV</button>
+      </div>
+      <button class="btn primary block" id="closeHist" style="margin-top:10px;">Close</button>
+    `);
+    document.getElementById('closeHist').onclick = closeModal;
+    document.getElementById('exportGame').onclick = ()=> downloadCSV(csvFilename(g), gameCSVRows(g, g.teamName));
+    document.getElementById('deleteGame').onclick = ()=>{
+      history = history.filter(x=>x.id!==g.id);
+      saveHistory();
+      closeModal();
+      render();
+    };
+  });
+}
+
+/* =========================================================
+   MODAL + UTIL
+========================================================= */
+function showModal(innerHtml){
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `<div class="modal-back" id="modalBack"><div class="modal">${innerHtml}</div></div>`;
+  document.getElementById('modalBack').addEventListener('click', e=>{ if(e.target.id==='modalBack') closeModal(); });
+}
+function closeModal(){ document.getElementById('modalRoot').innerHTML = ''; }
+function escapeHtml(str){
+  return String(str==null?'':str).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+loadAll();
+</script>
+</body>
+</html>
