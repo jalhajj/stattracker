@@ -938,13 +938,18 @@ function openSupabaseSetupModal(){
       errEl.textContent = 'Could not connect — check the URL, the key, and that you ran the setup SQL in Supabase.';
       return;
     }
-    // Carry over whatever is currently saved so nothing gets lost on switch.
+    // Only seed Supabase from this device's local data the first time (table
+    // genuinely empty). If another device already synced data, never
+    // overwrite it — just connect and let the reload pull the real data down.
     try{
-      const now = new Date().toISOString();
-      await testClient.from('courtside_kv').upsert({ key:'roster', value: JSON.stringify(roster), updated_at: now });
-      await testClient.from('courtside_kv').upsert({ key:'activeGame', value: JSON.stringify(activeGame), updated_at: now });
-      await testClient.from('courtside_kv').upsert({ key:'gameHistory', value: JSON.stringify(history), updated_at: now });
-    }catch(e){ /* non-fatal — proceed even if migration copy fails */ }
+      const { data: existing } = await testClient.from('courtside_kv').select('key').limit(1);
+      if(!existing || existing.length===0){
+        const now = new Date().toISOString();
+        await testClient.from('courtside_kv').upsert({ key:'roster', value: JSON.stringify(roster), updated_at: now });
+        await testClient.from('courtside_kv').upsert({ key:'activeGame', value: JSON.stringify(activeGame), updated_at: now });
+        await testClient.from('courtside_kv').upsert({ key:'gameHistory', value: JSON.stringify(history), updated_at: now });
+      }
+    }catch(e){ /* non-fatal — proceed even if the seed check/copy fails */ }
     setSupabaseConfig({ url, anonKey:key });
     location.reload();
   };
