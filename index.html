@@ -315,10 +315,13 @@ const OPP_STAT_ACTIONS = [
 ];
 const BLANK_OPP = () => ({fg2m:0,fg2a:0,fg3m:0,fg3a:0,oreb:0,dreb:0,tov:0,fta:0,pf:0});
 function ensureOppStats(g){ g.oppStats = Object.assign(BLANK_OPP(), g.oppStats||{}); }
-const BLANK_FB = () => ({us:0, opp:0});
+const BLANK_FB = () => ({us:0, opp:0, usMiss:0, oppMiss:0});
 function ensureFastBreak(g){ g.fastBreak = Object.assign(BLANK_FB(), g.fastBreak||{}); }
-// Transient (not persisted): whether the "next made basket is a fast break" toggle is armed, per side.
+// Transient (not persisted): whether the "next shot is a fast break" toggle is armed, per side.
 let fbArmed = { us:false, opp:false };
+// Shot-attempt keys eligible to consume the fast break toggle on a miss (mirrors the make keys that already carry inc.pts / pts).
+const FASTBREAK_MISS_KEYS_US = ['fg2a','fg3a','fta'];
+const FASTBREAK_MISS_KEYS_OPP = ['fg2a','fg3a'];
 
 function uid(prefix){ return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
@@ -473,13 +476,13 @@ function renderLive(content){
       <div class="sb-team">
         <div class="sb-name">${escapeHtml(roster.teamName)}</div>
         <div class="sb-score num">${teamTotal}</div>
-        <div class="muted" style="font-size:10.5px;margin-top:2px;">⚡ ${g.fastBreak.us} fast break</div>
+        <div class="muted" style="font-size:10.5px;margin-top:2px;">⚡ ${g.fastBreak.us} FB pts · ${g.fastBreak.usMiss} FB miss</div>
       </div>
       <div class="sb-mid"><div class="sb-vs">VS</div></div>
       <div class="sb-team">
         <div class="sb-name">${escapeHtml(g.opponent)}</div>
         <div class="sb-score num">${g.oppScore}</div>
-        <div class="muted" style="font-size:10.5px;margin-top:2px;">⚡ ${g.fastBreak.opp} fast break</div>
+        <div class="muted" style="font-size:10.5px;margin-top:2px;">⚡ ${g.fastBreak.opp} FB pts · ${g.fastBreak.oppMiss} FB miss</div>
         <div class="opp-add">
           <button data-opp="1">+1 FT</button>
         </div>
@@ -507,7 +510,7 @@ function renderLive(content){
       </div>` : `<div class="selected-line">Tap a player above, then tap what happened below.</div>`}
 
     <button class="btn ${fbArmed.us?'primary':''} block" id="fbToggleUs" style="margin-bottom:10px;">
-      ⚡ Fast Break${fbArmed.us?' — tap the make now':''}
+      ⚡ Fast Break${fbArmed.us?' — tap the shot (make or miss) now':''}
     </button>
 
     <div class="statpad" id="statpad">
@@ -521,7 +524,7 @@ function renderLive(content){
     <p class="muted" style="margin-bottom:10px;">Team-level stats for ${escapeHtml(g.opponent)} — no player needed, just tally what they do.</p>
 
     <button class="btn ${fbArmed.opp?'primary':''} block" id="fbToggleOpp" style="margin-bottom:10px;">
-      ⚡ Fast Break${fbArmed.opp?' — tap their make now':''}
+      ⚡ Fast Break${fbArmed.opp?' — tap their shot (make or miss) now':''}
     </button>
 
     <div class="statpad" id="oppStatpad">
@@ -561,7 +564,7 @@ function renderLive(content){
   content.querySelectorAll('[data-opp]').forEach(b=> b.onclick = ()=>{
     const d = parseInt(b.dataset.opp,10);
     g.oppScore += d;
-    g.log.push({type:'opp', delta:d});
+    g.log.push({type:'opp', delta:d, quarter: g.quarter});
     saveActiveGame(); render();
   });
   // player select
@@ -593,14 +596,21 @@ function renderLive(content){
 function applyStat(g, pid, action){
   const line = g.playerStats[pid];
   Object.entries(action.inc).forEach(([k,v])=>{ line[k] = (line[k]||0) + v; });
-  let fbPts = 0;
-  if(fbArmed.us && action.inc.pts){
-    ensureFastBreak(g);
-    fbPts = action.inc.pts;
-    g.fastBreak.us += fbPts;
-    fbArmed.us = false;
+  let fbPts = 0, fbMiss = false;
+  if(fbArmed.us){
+    if(action.inc.pts){
+      ensureFastBreak(g);
+      fbPts = action.inc.pts;
+      g.fastBreak.us += fbPts;
+      fbArmed.us = false;
+    } else if(FASTBREAK_MISS_KEYS_US.includes(action.key)){
+      ensureFastBreak(g);
+      g.fastBreak.usMiss += 1;
+      fbMiss = true;
+      fbArmed.us = false;
+    }
   }
-  g.log.push({type:'stat', pid, key:action.key, inc:action.inc, fbPts, fbSide: fbPts?'us':null});
+  g.log.push({type:'stat', pid, key:action.key, inc:action.inc, fbPts, fbMiss, fbSide: (fbPts||fbMiss)?'us':null, quarter: g.quarter});
 }
 function undoLast(g){
   const last = g.log.pop();
@@ -610,12 +620,14 @@ function undoLast(g){
     const line = g.playerStats[last.pid];
     Object.entries(last.inc).forEach(([k,v])=>{ line[k] -= v; });
     if(last.fbPts){ ensureFastBreak(g); g.fastBreak[last.fbSide] -= last.fbPts; }
+    if(last.fbMiss){ ensureFastBreak(g); g.fastBreak[last.fbSide+'Miss'] -= 1; }
   }
   else if(last.type==='oppstat'){
     ensureOppStats(g);
     g.oppStats[last.key] -= 1;
     if(last.pts) g.oppScore -= last.pts;
     if(last.fbPts){ ensureFastBreak(g); g.fastBreak[last.fbSide] -= last.fbPts; }
+    if(last.fbMiss){ ensureFastBreak(g); g.fastBreak[last.fbSide+'Miss'] -= 1; }
   }
 }
 function applyOppStat(g, key){
@@ -624,14 +636,21 @@ function applyOppStat(g, key){
   const action = OPP_STAT_ACTIONS.find(a=>a.key===key);
   const pts = (action && action.pts) ? action.pts : 0;
   if(pts) g.oppScore += pts;
-  let fbPts = 0;
-  if(fbArmed.opp && pts){
-    ensureFastBreak(g);
-    fbPts = pts;
-    g.fastBreak.opp += fbPts;
-    fbArmed.opp = false;
+  let fbPts = 0, fbMiss = false;
+  if(fbArmed.opp){
+    if(pts){
+      ensureFastBreak(g);
+      fbPts = pts;
+      g.fastBreak.opp += fbPts;
+      fbArmed.opp = false;
+    } else if(FASTBREAK_MISS_KEYS_OPP.includes(key)){
+      ensureFastBreak(g);
+      g.fastBreak.oppMiss += 1;
+      fbMiss = true;
+      fbArmed.opp = false;
+    }
   }
-  g.log.push({type:'oppstat', key, pts, fbPts, fbSide: fbPts?'opp':null});
+  g.log.push({type:'oppstat', key, pts, fbPts, fbMiss, fbSide: (fbPts||fbMiss)?'opp':null, quarter: g.quarter});
 }
 function totalPts(playerStats){ return Object.values(playerStats).reduce((s,l)=>s+l.pts,0); }
 function nameOf(pid){ const p = roster.players.find(p=>p.id===pid); return p?p.name:'Player'; }
@@ -753,7 +772,7 @@ function oppStatsBlock(g){
 }
 function fastBreakLine(g, teamName){
   ensureFastBreak(g);
-  return `<p class="muted" style="margin:-6px 0 12px;">⚡ Fast break points — ${escapeHtml(teamName)}: <b style="color:var(--ink)">${g.fastBreak.us}</b> &nbsp; ${escapeHtml(g.opponent)}: <b style="color:var(--ink)">${g.fastBreak.opp}</b></p>`;
+  return `<p class="muted" style="margin:-6px 0 12px;">⚡ Fast break — ${escapeHtml(teamName)}: <b style="color:var(--ink)">${g.fastBreak.us} pts</b> / <b style="color:var(--ink)">${g.fastBreak.usMiss} miss</b> &nbsp; ${escapeHtml(g.opponent)}: <b style="color:var(--ink)">${g.fastBreak.opp} pts</b> / <b style="color:var(--ink)">${g.fastBreak.oppMiss} miss</b></p>`;
 }
 
 /* ---- CSV export ---- */
@@ -777,28 +796,88 @@ function csvFilename(g){
   const safeOpp = String(g.opponent||'opponent').replace(/[^a-z0-9]+/gi,'_');
   return `game_${d.toISOString().slice(0,10)}_vs_${safeOpp}.csv`;
 }
+
+const QUARTER_ORDER = ['Q1','Q2','Q3','Q4','OT'];
+
+// Replays a game's action log to build per-quarter breakdowns. The log is
+// the source of truth for "what happened when" — playerStats/oppStats only
+// hold running totals. Log entries written before quarter-tagging existed
+// have no `quarter` field and are bucketed into Q1 so old saved games still
+// export instead of erroring.
+function computeGameBreakdown(g){
+  const playerQ = {};   // pid -> quarter -> stat line
+  const oppQ = {};      // quarter -> {..opp counters, rawPts}
+  const fbQ = {};       // quarter -> {usPts, usMiss, oppPts, oppMiss}
+  const ensurePlayerQ = (pid,q)=>{ playerQ[pid] = playerQ[pid]||{}; playerQ[pid][q] = playerQ[pid][q] || BLANK_LINE(); return playerQ[pid][q]; };
+  const ensureOppQ = (q)=>{ oppQ[q] = oppQ[q] || Object.assign(BLANK_OPP(), {rawPts:0}); return oppQ[q]; };
+  const ensureFbQ = (q)=>{ fbQ[q] = fbQ[q] || {usPts:0,usMiss:0,oppPts:0,oppMiss:0}; return fbQ[q]; };
+  (g.log||[]).forEach(entry=>{
+    const q = entry.quarter || 'Q1';
+    if(entry.type==='stat'){
+      const line = ensurePlayerQ(entry.pid, q);
+      Object.entries(entry.inc).forEach(([k,v])=>{ line[k] = (line[k]||0) + v; });
+      if(entry.fbPts) ensureFbQ(q).usPts += entry.fbPts;
+      if(entry.fbMiss) ensureFbQ(q).usMiss += 1;
+    } else if(entry.type==='oppstat'){
+      const o = ensureOppQ(q);
+      o[entry.key] = (o[entry.key]||0) + 1;
+      if(entry.fbPts) ensureFbQ(q).oppPts += entry.fbPts;
+      if(entry.fbMiss) ensureFbQ(q).oppMiss += 1;
+    } else if(entry.type==='opp'){
+      ensureOppQ(q).rawPts += entry.delta;
+    }
+  });
+  return { playerQ, oppQ, fbQ };
+}
+
 function gameCSVRows(g, teamName){
   ensureOppStats(g);
   ensureFastBreak(g);
-  const rows = [['Player','Number','PTS','REB','AST','STL','BLK','TOV','PF','FGM','FGA','3PM','3PA','FTM','FTA']];
-  Object.values(g.playerStats).forEach(l=>{
-    rows.push([l.name,l.number,l.pts,l.reb,l.ast,l.stl,l.blk,l.tov,l.pf,l.fgm,l.fga,l.tpm,l.tpa,l.ftm,l.fta]);
+  const { playerQ, oppQ, fbQ } = computeGameBreakdown(g);
+  const rows = [];
+
+  rows.push([`${teamName} — by quarter`]);
+  rows.push(['Quarter','Player','Number','PTS','REB','AST','STL','BLK','TOV','PF','FGM','FGA','3PM','3PA','FTM','FTA']);
+  Object.entries(g.playerStats).forEach(([pid, total])=>{
+    QUARTER_ORDER.forEach(q=>{
+      const line = playerQ[pid] && playerQ[pid][q];
+      if(!line) return;
+      rows.push([q, total.name, total.number, line.pts,line.reb,line.ast,line.stl,line.blk,line.tov,line.pf,line.fgm,line.fga,line.tpm,line.tpa,line.ftm,line.fta]);
+    });
+    rows.push(['Total', total.name, total.number, total.pts,total.reb,total.ast,total.stl,total.blk,total.tov,total.pf,total.fgm,total.fga,total.tpm,total.tpa,total.ftm,total.fta]);
   });
   rows.push([]);
-  rows.push([`Opponent (${g.opponent}) team stats`]);
-  rows.push(['2PM','2PA','3PM','3PA','OREB','DREB','TOV','FTA','PF']);
-  const o = g.oppStats;
-  rows.push([o.fg2m, o.fg2m+o.fg2a, o.fg3m, o.fg3m+o.fg3a, o.oreb, o.dreb, o.tov, o.fta, o.pf]);
+
+  rows.push([`${g.opponent} — by quarter`]);
+  rows.push(['Quarter','2PM','2PA','3PM','3PA','OREB','DREB','TOV','FTA','PF','QuickAddPts']);
+  let oppRawPtsTotal = 0;
+  QUARTER_ORDER.forEach(q=>{
+    const o = oppQ[q];
+    if(!o) return;
+    oppRawPtsTotal += o.rawPts;
+    rows.push([q, o.fg2m, o.fg2m+o.fg2a, o.fg3m, o.fg3m+o.fg3a, o.oreb, o.dreb, o.tov, o.fta, o.pf, o.rawPts]);
+  });
+  const oTot = g.oppStats;
+  rows.push(['Total', oTot.fg2m, oTot.fg2m+oTot.fg2a, oTot.fg3m, oTot.fg3m+oTot.fg3a, oTot.oreb, oTot.dreb, oTot.tov, oTot.fta, oTot.pf, oppRawPtsTotal]);
   rows.push([]);
-  rows.push(['Fast break points', teamName, g.fastBreak.us, g.opponent, g.fastBreak.opp]);
+
+  rows.push(['Fast break — by quarter']);
+  rows.push(['Quarter', `${teamName}_Pts`, `${teamName}_Miss`, `${g.opponent}_Pts`, `${g.opponent}_Miss`]);
+  QUARTER_ORDER.forEach(q=>{
+    const fb = fbQ[q];
+    if(!fb) return;
+    rows.push([q, fb.usPts, fb.usMiss, fb.oppPts, fb.oppMiss]);
+  });
+  rows.push(['Total', g.fastBreak.us, g.fastBreak.usMiss, g.fastBreak.opp, g.fastBreak.oppMiss]);
   rows.push([]);
+
   const teamTotal = g.finalTeam!==undefined ? g.finalTeam : totalPts(g.playerStats);
   const oppTotal = g.finalOpp!==undefined ? g.finalOpp : g.oppScore;
   rows.push(['Final score', teamName, teamTotal, 'vs', g.opponent, oppTotal]);
   return rows;
 }
 function seasonCSVRows(){
-  const header = ['Date','Opponent','Result','Player','Number','PTS','REB','AST','STL','BLK','TOV','PF','FGM','FGA','3PM','3PA','FTM','FTA','Opp_2PM','Opp_2PA','Opp_3PM','Opp_3PA','Opp_OREB','Opp_DREB','Opp_TOV','Opp_FTA','Opp_PF','FastBreak_Us','FastBreak_Opp'];
+  const header = ['Date','Opponent','Result','Player','Number','PTS','REB','AST','STL','BLK','TOV','PF','FGM','FGA','3PM','3PA','FTM','FTA','Opp_2PM','Opp_2PA','Opp_3PM','Opp_3PA','Opp_OREB','Opp_DREB','Opp_TOV','Opp_FTA','Opp_PF','FastBreakPts_Us','FastBreakMiss_Us','FastBreakPts_Opp','FastBreakMiss_Opp'];
   const rows = [header];
   history.forEach(g=>{
     ensureOppStats(g);
@@ -808,7 +887,7 @@ function seasonCSVRows(){
       rows.push([dateStr, g.opponent, g.result, l.name, l.number, l.pts,l.reb,l.ast,l.stl,l.blk,l.tov,l.pf,l.fgm,l.fga,l.tpm,l.tpa,l.ftm,l.fta,
         g.oppStats.fg2m, g.oppStats.fg2m+g.oppStats.fg2a, g.oppStats.fg3m, g.oppStats.fg3m+g.oppStats.fg3a,
         g.oppStats.oreb, g.oppStats.dreb, g.oppStats.tov, g.oppStats.fta, g.oppStats.pf,
-        g.fastBreak.us, g.fastBreak.opp]);
+        g.fastBreak.us, g.fastBreak.usMiss, g.fastBreak.opp, g.fastBreak.oppMiss]);
     });
   });
   return rows;
